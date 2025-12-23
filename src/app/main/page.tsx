@@ -8,7 +8,7 @@ import { Button } from "@/components/ui/button";
 // [수정 1] DialogDescription 추가 import
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogDescription } from "@/components/ui/dialog";
 import { toast } from "sonner";
-import { Bell, RefreshCw, Copy, Menu, Camera } from "lucide-react";
+import { Bell, RefreshCw, Copy, Menu, Camera, Home, Calendar, User } from "lucide-react";
 
 // --- [타입 정의] ---
 interface LaundryMachine {
@@ -486,23 +486,47 @@ export default function MainPage() {
         </section>
       </div>
 
-      {/* 🌟 하단 메뉴바 */}
-      <div className="absolute bottom-0 left-0 w-full h-[60px] bg-white border-t border-slate-50 z-20">
-         <div className="relative w-full h-full">
-            <Image 
-              src={getMenuImage()} 
-              alt="TabBar" 
-              fill 
-              className="object-contain" 
-              priority
-            />
+      {/* 🌟 하단 메뉴바 (CSS 코드로 구현 - 선명함 유지) */}
+      <div className="absolute bottom-8 left-0 right-0 px-8 z-20">
+        <div className="w-full h-[64px] bg-white rounded-full border border-[#051E96] flex items-center justify-between p-1.5 shadow-[0_4px_20px_rgba(5,30,150,0.15)]">
             
-            <div className="absolute inset-0 flex">
-                <button onClick={() => setActiveTab("home")} className="flex-1 h-full z-30" aria-label="Home"/>
-                <button onClick={() => { setActiveTab("schedule"); router.push("/schedule"); }} className="flex-1 h-full z-30" aria-label="Schedule"/>
-                <button onClick={() => { setActiveTab("mypage"); router.push("/mypage"); }} className="flex-1 h-full z-30" aria-label="MyPage"/>
-            </div>
-         </div>
+            {/* 1. 홈 버튼 (Main) */}
+            <button 
+                onClick={() => setActiveTab("home")} 
+                className={`flex-1 h-full flex items-center justify-center rounded-[24px] transition-all duration-300 ${
+                    activeTab === "home" 
+                    ? "bg-[#051E96] text-white shadow-md" 
+                    : "bg-transparent text-[#051E96] hover:bg-blue-50"
+                }`}
+            >
+                <Home strokeWidth={2.5} className="w-6 h-6" />
+            </button>
+
+            {/* 2. 스케줄 버튼 (Schedule) */}
+            <button 
+                onClick={() => { setActiveTab("schedule"); router.push("/schedule"); }} 
+                className={`flex-1 h-full flex items-center justify-center rounded-[24px] transition-all duration-300 ${
+                    activeTab === "schedule" 
+                    ? "bg-[#051E96] text-white shadow-md" 
+                    : "bg-transparent text-[#051E96] hover:bg-blue-50"
+                }`}
+            >
+                <Calendar strokeWidth={2.5} className="w-6 h-6" />
+            </button>
+
+            {/* 3. 마이페이지 버튼 (MyPage) */}
+            <button 
+                onClick={() => { setActiveTab("mypage"); router.push("/mypage"); }} 
+                className={`flex-1 h-full flex items-center justify-center rounded-[24px] transition-all duration-300 ${
+                    activeTab === "mypage" 
+                    ? "bg-[#051E96] text-white shadow-md" 
+                    : "bg-transparent text-[#051E96] hover:bg-blue-50"
+                }`}
+            >
+                <User strokeWidth={2.5} className="w-6 h-6" />
+            </button>
+
+        </div>
       </div>
 
       {/* [수정 3] Dialog 위치 변경 (div 내부로 이동하여 문법 에러 해결) */}

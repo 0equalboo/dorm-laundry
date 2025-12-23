@@ -4,7 +4,8 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Image from "next/image";
 import { supabase } from "@/lib/supabase";
-import { Bell, Menu } from "lucide-react";
+// [수정 1] 하단 메뉴바에 필요한 아이콘들(Home, Calendar, User) 추가 Import
+import { Bell, Menu, Home, Calendar, User } from "lucide-react";
 
 // DB 스키마에 맞춘 라이프스타일 타입
 interface UserLifestyle {
@@ -23,6 +24,9 @@ export default function MyPage() {
   const [profile, setProfile] = useState<any>(null);
   const [lifestyle, setLifestyle] = useState<UserLifestyle | null>(null);
   const [loading, setLoading] = useState(true);
+
+  // [수정 2] 하단 탭 상태 관리 추가 (초기값: "mypage")
+  const [activeTab, setActiveTab] = useState("mypage");
 
   useEffect(() => {
     async function fetchMyData() {
@@ -52,30 +56,11 @@ export default function MyPage() {
     fetchMyData();
   }, [router]);
 
-  // 아이콘 결정 로직 (메인 페이지와 동일)
-  const getSleepIcon = () => {
-    return (lifestyle?.sleep_time_val ?? 0.5) > 0.6 
-      ? "/images/late_night.png" 
-      : "/images/sun.png";
-  };
-
-  const getNoiseIcon = () => {
-    return (lifestyle?.sound_sensitivity_val ?? 0.5) > 0.6 
-      ? "/images/small_sound.png" 
-      : "/images/big_sound.png";
-  };
-
-  const getCleanIcon = () => {
-    return (lifestyle?.clean_cycle_val ?? 0.5) < 0.4 
-      ? "/images/blood_minus.png" 
-      : "/images/clean_icon.png";
-  };
-
-  const getSmokeIcon = () => {
-    return lifestyle?.smoke 
-      ? "/images/tabaco_icon.png" 
-      : "/images/no_tabaco_icon.png";
-  };
+  // 아이콘 결정 로직
+  const getSleepIcon = () => (lifestyle?.sleep_time_val ?? 0.5) > 0.6 ? "/images/late_night.png" : "/images/sun.png";
+  const getNoiseIcon = () => (lifestyle?.sound_sensitivity_val ?? 0.5) > 0.6 ? "/images/small_sound.png" : "/images/big_sound.png";
+  const getCleanIcon = () => (lifestyle?.clean_cycle_val ?? 0.5) < 0.4 ? "/images/blood_minus.png" : "/images/clean_icon.png";
+  const getSmokeIcon = () => lifestyle?.smoke ? "/images/tabaco_icon.png" : "/images/no_tabaco_icon.png";
 
   const getSleepLabel = () => (lifestyle?.sleep_time_val ?? 0.5) > 0.6 ? "야행성" : "아침형";
   const getNoiseLabel = () => (lifestyle?.sound_sensitivity_val ?? 0.5) > 0.6 ? "소음 둔감" : "소음 예민";
@@ -89,7 +74,7 @@ export default function MyPage() {
   );
 
   return (
-    <div className="h-full w-full bg-[#B9BEFF] flex flex-col font-sans overflow-hidden">
+    <div className="h-full w-full bg-[#B9BEFF] flex flex-col font-sans overflow-hidden relative">
       
       {/* 1. 상단 프로필 헤더 */}
       <div className="px-6 pt-12 pb-10 flex flex-col items-center relative shrink-0">
@@ -130,7 +115,6 @@ export default function MyPage() {
             left="이르다" 
             right="늦다" 
             value={lifestyle?.sleep_time_val ?? 0.5} 
-          
           />
         </Section>
 
@@ -174,40 +158,51 @@ export default function MyPage() {
           />
         </Section>
 
-        
-
       </div>
 
-      {/* 3. 하단 메뉴바 */}
-      <div className="absolute bottom-0 left-0 w-full h-[60px] bg-white border-t border-slate-50 z-20">
-        <div className="relative w-full h-full">
-          <Image 
-            src="/images/menu3.png" 
-            alt="TabBar" 
-            fill 
-            className="object-contain" 
-            priority
-          />
-          
-          {/* 클릭 영역 */}
-          <div className="absolute inset-0 flex">
+      {/* 🌟 하단 메뉴바 */}
+      <div className="absolute bottom-8 left-0 right-0 px-8 z-20">
+        <div className="w-full h-[64px] bg-white rounded-full border border-[#051E96] flex items-center justify-between p-1.5 shadow-[0_4px_20px_rgba(5,30,150,0.15)]">
+            
+            {/* 1. 홈 버튼 (클릭 시 메인 페이지로 이동) */}
             <button 
-              onClick={() => router.push("/main")} 
-              className="flex-1 h-full z-30" 
-              aria-label="Home"
-            />
+                onClick={() => { setActiveTab("home"); router.push("/main"); }} 
+                className={`flex-1 h-full flex items-center justify-center rounded-[24px] transition-all duration-300 ${
+                    activeTab === "home" 
+                    ? "bg-[#051E96] text-white shadow-md" 
+                    : "bg-transparent text-[#051E96] hover:bg-blue-50"
+                }`}
+            >
+                <Home strokeWidth={2.5} className="w-6 h-6" />
+            </button>
+
+            {/* 2. 스케줄 버튼 */}
             <button 
-              onClick={() => router.push("/schedule")} 
-              className="flex-1 h-full z-30" 
-              aria-label="Schedule"
-            />
+                onClick={() => { setActiveTab("schedule"); router.push("/schedule"); }} 
+                className={`flex-1 h-full flex items-center justify-center rounded-[24px] transition-all duration-300 ${
+                    activeTab === "schedule" 
+                    ? "bg-[#051E96] text-white shadow-md" 
+                    : "bg-transparent text-[#051E96] hover:bg-blue-50"
+                }`}
+            >
+                <Calendar strokeWidth={2.5} className="w-6 h-6" />
+            </button>
+
+            {/* 3. 마이페이지 버튼 */}
             <button 
-              className="flex-1 h-full z-30" 
-              aria-label="MyPage"
-            />
-          </div>
+                onClick={() => setActiveTab("mypage")} 
+                className={`flex-1 h-full flex items-center justify-center rounded-[24px] transition-all duration-300 ${
+                    activeTab === "mypage" 
+                    ? "bg-[#051E96] text-white shadow-md" 
+                    : "bg-transparent text-[#051E96] hover:bg-blue-50"
+                }`}
+            >
+                <User strokeWidth={2.5} className="w-6 h-6" />
+            </button>
+
         </div>
       </div>
+
     </div>
   );
 }
@@ -237,24 +232,9 @@ function SliderRow({ label, left, right, value }: { label: string; left: string;
       {/* 커스텀 게이지 바 */}
       <div className="h-4 w-full bg-slate-100 rounded-full relative overflow-hidden">
         <div 
-          className="h-full bg-gradient-to-r bg-[#051E96] transition-all duration-500 rounded-full" 
+          className="h-full bg-[#051E96] transition-all duration-500 rounded-full" 
           style={{ width: `${value * 100}%` }} 
         />
-      </div>
-    </div>
-  );
-}
-
-function BooleanRow({ label, value }: { label: string; value: boolean }) {
-  return (
-    <div className="flex items-center justify-between py-3 px-4 bg-slate-50 rounded-xl">
-      <span className="text-sm font-bold text-slate-800">{label}</span>
-      <div className={`px-4 py-1.5 rounded-full text-xs font-bold ${
-        value 
-          ? "bg-red-100 text-red-600" 
-          : "bg-blue-100 text-[#051E96]"
-      }`}>
-        {value ? "예" : "아니오"}
       </div>
     </div>
   );
