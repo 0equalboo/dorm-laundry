@@ -5,7 +5,7 @@ import { QRCodeSVG } from "qrcode.react";
 export default function QRGenPage() {
   // 🚨 중요: 배포 후에는 이 주소를 실제 배포 도메인(https://...)으로 바꿔야 작동합니다.
   // 로컬 테스트용: "http://localhost:3000"
-  const BASE_URL = "http://localhost:3000"; 
+  const BASE_URL = "https://dorm-laundry-pi.vercel.app"; 
   
   // 남자 기숙사 (ID 1~12)
   const maleMachines = Array.from({ length: 12 }, (_, i) => i + 1);
