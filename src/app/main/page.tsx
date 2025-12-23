@@ -295,7 +295,7 @@ export default function MainPage() {
       : "/images/big_sound.png";
     
     const cleanIcon = (user.clean_cycle_val ?? 0.5) < 0.4 
-      ? "/images/blood_minus.png" 
+      ? "/images/Blood_minus.png" 
       : "/images/clean_icon.png";
 
     const smokeIcon = (user.smoke ?? false) 
