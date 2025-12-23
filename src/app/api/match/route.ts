@@ -10,12 +10,12 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "User ID is required" }, { status: 400 });
     }
 
-    // --- [STEP 1] Supabase에서 데이터 가져오기 ---
+    // --- [STEP 1] Supabase에서 데이터 가져오기 (3개 테이블 조인) ---
 
-    // 1. 내 프로필 조회
+    // 1. 내 프로필 + 라이프스타일 + 페르소나(가중치) 조회
     const { data: myProfile, error: myError } = await supabase
       .from("profiles")
-      .select("*")
+      .select("*, user_lifestyles(*), user_personas(*)") 
       .eq("id", userId)
       .single();
 
@@ -23,47 +23,64 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "내 프로필을 찾을 수 없습니다." }, { status: 404 });
     }
 
-    // 2. 후보자 프로필 조회 (나 제외, 같은 성별, 룸메 구하는 중)
+    // 2. 후보자 조회 (나 제외, 같은 성별, 구하는 중)
     const { data: candidates, error: candError } = await supabase
       .from("profiles")
-      .select("*")
+      .select("*, user_lifestyles(*), user_personas(*)")
       .neq("id", userId)
       .eq("gender", myProfile.gender)
-      .eq("status", "seeking"); // 구하는 중인 사람만
+      .eq("status", "seeking");
 
     if (candError || !candidates) {
       return NextResponse.json({ error: "후보자 데이터를 가져오는데 실패했습니다." }, { status: 500 });
     }
 
-    // --- [STEP 2] 데이터 포장 (AI 서버용) ---
-    const formatProfile = (row: any) => ({
-      // 매칭에 필요한 ID와 닉네임 꼭 포함
-      id: row.id, 
-      nickname: row.nickname || "알수없음",
-      gender: row.gender || "male",
-      smoke: row.smoke ?? false,
-      sleep_habit: row.sleep_habit || "none",
-      sleep_time_val: row.sleep_time_val || 0.5,
-      wake_time_val: row.wake_time_val || 0.5,
-      clean_cycle_val: row.clean_cycle_val || 0.5,
-      hvac_val: row.hvac_val || 0.5,
-      alarm_val: row.alarm_val || 0.5,
-      outing_val: row.outing_val || 0.5,
-      block_smoke: row.block_smoke ?? false,
-      block_sleep_habit: row.block_sleep_habit ?? false,
-      w_sleep: row.w_sleep ?? 1.0,
-      w_clean_cycle: row.w_clean_cycle ?? 1.0,
-      w_hvac: row.w_hvac ?? 1.0,
-      w_noise: row.w_noise ?? 1.0,
-      w_outing: row.w_outing ?? 1.0,
-    });
+    // --- [STEP 2] 데이터 포장 (DB 컬럼 -> AI 변수명 매핑) ---
+    const formatProfile = (row: any) => {
+      const life = row.user_lifestyles || {};
+      const persona = row.user_personas || {};
+
+      return {
+        // [신원 정보]
+        id: row.id,
+        nickname: row.nickname || "알수없음",
+        gender: row.gender,
+
+        // [라이프스타일 값] (DB: user_lifestyles -> AI: UserProfile)
+        smoke: life.smoke ?? false,
+        sleep_habit: life.game_voice ? "yes" : "no", // 예시 매핑
+        sleep_time_val: life.sleep_time_val ?? 0.5,
+        wake_time_val: life.wake_time_val ?? 0.5,
+        clean_cycle_val: life.clean_cycle_val ?? 0.5,
+        hvac_val: life.hvac_val ?? 0.5,
+        alarm_val: life.sound_sensitivity_val ?? 0.5, 
+        outing_val: life.outing_val ?? 0.5, // DB에 없으면 기본값
+
+        // [현재 가중치] (DB: user_personas -> AI: UserProfile)
+        // DB 컬럼명(pref_...)과 AI 변수명(w_...)을 연결합니다.
+        w_sleep: persona.pref_schedule ?? 0.233,
+        w_smoke: persona.pref_smoke ?? 0.167,
+        w_sleep_habit: persona.pref_habit ?? 0.113,
+        w_hvac: persona.pref_temp ?? 0.133,
+        w_clean_cycle: persona.pref_cleanliness ?? 0.147,
+        w_noise: persona.pref_noise ?? 0.173,
+        w_outing: persona.pref_drink ?? 0.033, // *DB 매핑 주의 (pref_drink 사용중)
+
+        // [필터]
+        block_smoke: false,
+        block_sleep_habit: false,
+      };
+    };
+
+    // 라이프스타일 정보가 없는(설문 안 한) 유령 회원은 제외
+    const validCandidates = candidates.filter(c => c.user_lifestyles !== null);
 
     const payload = {
       user_profile: formatProfile(myProfile),
-      candidates: (candidates as any[]).map(formatProfile),
+      candidates: validCandidates.map(formatProfile),
     };
 
-    console.log(`🚀 AI 요청 보냄: 후보자 ${candidates.length}명`);
+    console.log(`🚀 AI 요청 보냄: 후보자 ${validCandidates.length}명`);
 
     // --- [STEP 3] Python AI 서버로 전송 ---
     const aiResponse = await fetch(`${process.env.AI_SERVER_URL}/api/v1/match`, {
@@ -76,29 +93,60 @@ export async function POST(request: Request) {
     });
 
     if (!aiResponse.ok) {
-      const errorText = await aiResponse.text();
-      console.error("AI 서버 에러:", errorText);
+      const errText = await aiResponse.text();
+      console.error("AI Error:", errText);
       throw new Error(`AI Server Error: ${aiResponse.status}`);
     }
 
-    // 👉 여기가 질문하신 부분입니다!
-    const aiResults = await aiResponse.json(); // 1. AI가 준 점수 리스트 받기
+    const aiData = await aiResponse.json();
+    const { results: aiResults, updated_weights: newWeights } = aiData;
 
-    // --- [STEP 4] 점수 + 상세 정보 합치기 (Merge) ---
+    // --- [STEP 4] 가중치 업데이트 (AI 제안 반영) ---
+    if (newWeights) {
+      console.log("🔄 AI 제안 가중치 업데이트:", newWeights);
+
+      // AI가 준 키(w_...)를 DB 컬럼(pref_...)으로 변환해야 함
+      const updatePayload = {
+        pref_schedule: newWeights.w_sleep,
+        pref_smoke: newWeights.w_smoke,
+        pref_habit: newWeights.w_sleep_habit,
+        pref_temp: newWeights.w_hvac,
+        pref_cleanliness: newWeights.w_clean_cycle,
+        pref_noise: newWeights.w_noise,
+        pref_drink: newWeights.w_outing, // *매핑 주의
+        updated_at: new Date().toISOString(),
+      };
+
+      const { error: updateError } = await supabase
+        .from("user_personas")
+        .update(updatePayload)
+        .eq("user_id", userId);
+
+      if (updateError) {
+        console.error("⚠️ 가중치 업데이트 실패:", updateError);
+      }
+    }
+
+    // --- [STEP 5] 결과 합치기 (DB정보 + AI점수) ---
     const finalResults = aiResults.map((aiItem: any) => {
-      // 닉네임이 같은 사람을 DB 목록(candidates)에서 찾습니다.
-      // (만약 AI가 id를 돌려준다면 .find(c => c.id === aiItem.id)가 더 안전합니다)
-      const originalProfile = candidates.find((c) => c.nickname === aiItem.nickname);
+      const originalProfile = validCandidates.find((c) => c.nickname === aiItem.nickname);
       
-      // DB정보(...) + AI점수(score, risks) 합쳐서 리턴
       return {
-        ...originalProfile, 
+        id: originalProfile?.id,
+        nickname: originalProfile?.nickname,
+        gender: originalProfile?.gender,
+        
+        // 상세 정보 펼쳐주기 (프론트에서 쓰기 편하게)
+        ...originalProfile?.user_lifestyles,
+        
         score: aiItem.score,
         risks: aiItem.risks
       };
     });
 
-    // 최종적으로 합쳐진 데이터를 프론트로 보냅니다.
+    // 점수 높은 순 정렬
+    finalResults.sort((a: any, b: any) => b.score - a.score);
+
     return NextResponse.json(finalResults);
 
   } catch (error: any) {
