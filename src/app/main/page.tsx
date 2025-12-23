@@ -5,7 +5,8 @@ import { useRouter } from "next/navigation";
 import Image from "next/image";
 import { supabase } from "@/lib/supabase";
 import { Button } from "@/components/ui/button";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+// [수정 1] DialogDescription 추가 import
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogDescription } from "@/components/ui/dialog";
 import { toast } from "sonner";
 import { Bell, RefreshCw, Copy, Menu, Camera } from "lucide-react";
 
@@ -65,6 +66,10 @@ export default function MainPage() {
 
   const [isNotiOpen, setIsNotiOpen] = useState(false);
   const [activeTab, setActiveTab] = useState("home"); // "home" | "schedule" | "mypage"
+
+  const [selectedUser, setSelectedUser] = useState<RecommendedUser | null>(null); // 선택된 추천 유저
+  const [reqMessage, setReqMessage] = useState(""); // 신청 메시지
+  const [reqContact, setReqContact] = useState(""); // 내 연락처
 
   useEffect(() => {
     async function initData() {
@@ -132,7 +137,7 @@ export default function MainPage() {
         .from("matches")
         .select(`
           id, status, message, contact_info, created_at, sender_id,
-          sender:profiles!sender_id (
+          sender:profiles!matches_sender_id_fkey (  
             nickname, 
             gender,
             user_lifestyles (
@@ -167,15 +172,75 @@ export default function MainPage() {
     }
   };
 
+  const handleSendRequest = async () => {
+    // 1. 기본 유효성 검사
+    if (!myId) {
+      toast.error("로그인 정보가 없습니다. 다시 로그인해주세요.");
+      return;
+    }
+    if (!selectedUser || !reqContact) {
+      toast.error("연락처를 입력해주세요!");
+      return;
+    }
+
+    try {
+      // 2. [중요] 이미 신청한 내역이 있는지 먼저 확인 (중복 방지)
+      const { data: existingMatch, error: searchError } = await supabase
+        .from("matches")
+        .select("id, status")
+        .or(`and(sender_id.eq.${myId},receiver_id.eq.${selectedUser.id}),and(sender_id.eq.${selectedUser.id},receiver_id.eq.${myId})`)
+        .maybeSingle();
+
+      if (searchError) {
+        console.error("중복 검사 중 에러:", searchError);
+        // 검색 에러가 나도 일단 진행하거나 리턴
+      }
+
+      if (existingMatch) {
+        toast.error(`이미 신청이 오고 갔거나, 친구 상태입니다! (상태: ${existingMatch.status})`);
+        return;
+      }
+
+      // 3. 신청 전송 (INSERT)
+      const { data, error } = await supabase
+        .from("matches")
+        .insert({
+          sender_id: myId,
+          receiver_id: selectedUser.id,
+          message: reqMessage,
+          contact_info: reqContact,
+          status: "pending"
+        })
+        .select(); // insert 후 결과 반환 요청
+
+      // 4. 에러 처리
+      if (error) {
+        console.error("❌ 전송 실패 상세 로그:", error); // 브라우저 콘솔(F12)에서 이 로그를 확인해야 합니다.
+        toast.error(`전송 실패: ${error.message || "알 수 없는 오류"}`);
+        return;
+      }
+
+      // 5. 성공 처리
+      toast.success(`${selectedUser.nickname}님에게 신청을 보냈습니다! 💌`);
+      setSelectedUser(null);
+      setReqMessage("");
+      setReqContact("");
+      
+      // 목록 새로고침 (내가 보낸 것도 확인하고 싶다면 로직 추가 필요, 여기선 생략)
+      
+    } catch (e) {
+      console.error("예상치 못한 에러:", e);
+      toast.error("오류가 발생했습니다.");
+    }
+  };
+
   // --- [세탁기 관련 로직] ---
   const handleMachineClick = async (machine: LaundryMachine) => {
     const isMine = machine.user_id === myId;
 
     if (machine.status === 'idle') {
-      // 1. 비어있는 경우 스캔 페이지로 이동
       router.push(`/laundry/action?id=${machine.id}`);
     } else if (isMine) {
-      // 2. 내가 사용 중인 경우 클릭 시 사용 종료
       if (confirm(`${machine.label} 사용을 종료하시겠습니까?`)) {
         const { error } = await supabase
           .from("laundry_machines")
@@ -276,6 +341,8 @@ export default function MainPage() {
                 <DialogContent className="w-[90%] max-w-md rounded-[20px] bg-[#F8F9FD] border-0 p-0 overflow-hidden h-[75vh] flex flex-col">
                     <DialogHeader className="px-6 pt-6 pb-2 bg-white shrink-0 border-b border-slate-100">
                         <DialogTitle className="text-lg font-bold text-[#051E96]">룸메이트 신청 목록</DialogTitle>
+                        {/* [수정] 경고 제거를 위한 Description 추가 (화면엔 안보임) */}
+                        <DialogDescription className="sr-only">나에게 온 룸메이트 신청 목록입니다.</DialogDescription>
                     </DialogHeader>
                     <div className="flex-1 overflow-y-auto p-4 space-y-3 scrollbar-hide">
                         {matchRequests.map((req) => {
@@ -337,87 +404,89 @@ export default function MainPage() {
         <section className="px-6">
            <h2 className="text-lg font-bold text-[#051E96] mb-4">추천 룸메이트</h2>
            <div className="flex gap-3 overflow-x-auto pb-6 -mx-6 px-6 scrollbar-hide snap-x">
-              {recommendations.map((user, idx) => {
-                  const { sleepIcon, noiseIcon, cleanIcon, smokeIcon } = getIcons(user);
-                  return (
-                    <div key={idx} className="snap-center shrink-0 w-[160px] bg-white rounded-[20px] p-4 flex flex-col gap-2.5 shadow-[0_4px_15px_rgba(0,0,0,0.03)] border border-[#F0F2F9] cursor-pointer">
-                        {/* 상단: 아이콘 + 이름/흡연 정보 (가로 배치) */}
-                        <div className="flex items-center gap-2.5">
-                            <div className="relative w-11 h-11 rounded-full bg-[#F5F6FF] flex items-center justify-center border-2 border-white shadow-sm shrink-0">
-                                <Image src="/images/ghost_icon.png" alt="Profile" width={28} height={28} />
-                            </div>
-                            <div className="flex flex-col justify-center min-w-0">
-                                <h3 className="text-[#051E96] font-bold text-sm truncate">{user.nickname}</h3>
-                                <span className={`text-[8px] font-bold ${user.smoke ? "text-red-400" : "text-[#B9BEFF]"}`}>
-                                    {user.smoke ? "흡연자" : "비흡연자"}
-                                </span>
-                            </div>
-                        </div>
-                        {/* 하단: 아이콘 그리드 */}
-                        <div className="grid grid-cols-2 gap-1.5 w-full">
-                            <div className="aspect-square bg-[#F8F9FF] rounded-lg flex items-center justify-center border border-[#E5E8FF]"><Image src={sleepIcon} alt="Sleep" width={18} height={18} /></div>
-                            <div className="aspect-square bg-[#F8F9FF] rounded-lg flex items-center justify-center border border-[#E5E8FF]"><Image src={noiseIcon} alt="Noise" width={18} height={18} /></div>
-                            <div className="aspect-square bg-[#F8F9FF] rounded-lg flex items-center justify-center border border-[#E5E8FF]"><Image src={cleanIcon} alt="Clean" width={18} height={18} /></div>
-                            <div className="aspect-square bg-[#F8F9FF] rounded-lg flex items-center justify-center border border-[#E5E8FF]"><Image src={smokeIcon} alt="Smoke" width={18} height={18} /></div>
-                        </div>
-                    </div>
-                  );
-              })}
-              <div className="w-2 shrink-0"></div>
+             {recommendations.map((user, idx) => {
+                 const { sleepIcon, noiseIcon, cleanIcon, smokeIcon } = getIcons(user);
+                 return (
+                   <div 
+                     key={idx} 
+                     onClick={() => setSelectedUser(user)} // [수정 2] 클릭 이벤트 추가!
+                     className="snap-center shrink-0 w-[160px] bg-white rounded-[20px] p-4 flex flex-col gap-2.5 shadow-[0_4px_15px_rgba(0,0,0,0.03)] border border-[#F0F2F9] cursor-pointer"
+                    >
+                       {/* 상단: 아이콘 + 이름/흡연 정보 (가로 배치) */}
+                       <div className="flex items-center gap-2.5">
+                           <div className="relative w-11 h-11 rounded-full bg-[#F5F6FF] flex items-center justify-center border-2 border-white shadow-sm shrink-0">
+                               <Image src="/images/ghost_icon.png" alt="Profile" width={28} height={28} />
+                           </div>
+                           <div className="flex flex-col justify-center min-w-0">
+                               <h3 className="text-[#051E96] font-bold text-sm truncate">{user.nickname}</h3>
+                               <span className={`text-[8px] font-bold ${user.smoke ? "text-red-400" : "text-[#B9BEFF]"}`}>
+                                   {user.smoke ? "흡연자" : "비흡연자"}
+                               </span>
+                           </div>
+                       </div>
+                       {/* 하단: 아이콘 그리드 */}
+                       <div className="grid grid-cols-2 gap-1.5 w-full">
+                           <div className="aspect-square bg-[#F8F9FF] rounded-lg flex items-center justify-center border border-[#E5E8FF]"><Image src={sleepIcon} alt="Sleep" width={18} height={18} /></div>
+                           <div className="aspect-square bg-[#F8F9FF] rounded-lg flex items-center justify-center border border-[#E5E8FF]"><Image src={noiseIcon} alt="Noise" width={18} height={18} /></div>
+                           <div className="aspect-square bg-[#F8F9FF] rounded-lg flex items-center justify-center border border-[#E5E8FF]"><Image src={cleanIcon} alt="Clean" width={18} height={18} /></div>
+                           <div className="aspect-square bg-[#F8F9FF] rounded-lg flex items-center justify-center border border-[#E5E8FF]"><Image src={smokeIcon} alt="Smoke" width={18} height={18} /></div>
+                       </div>
+                   </div>
+                 );
+             })}
+             <div className="w-2 shrink-0"></div>
            </div>
         </section>
 
-        {/* 🌟 세탁실 현황 (개선된 UI) */}
+        {/* 🌟 세탁실 현황 */}
         <section className="px-6">
            <div className="flex justify-between items-center mb-4">
-              <h2 className="text-lg font-bold text-[#051E96]">세탁실 사용 현황</h2>
-              <button onClick={() => fetchLaundryStatus(userGender)} className="text-xs font-bold text-slate-400 flex items-center gap-1"><RefreshCw className="w-3 h-3" /> 새로고침</button>
+             <h2 className="text-lg font-bold text-[#051E96]">세탁실 사용 현황</h2>
+             <button onClick={() => fetchLaundryStatus(userGender)} className="text-xs font-bold text-slate-400 flex items-center gap-1"><RefreshCw className="w-3 h-3" /> 새로고침</button>
            </div>
 
            <div className="grid grid-cols-4 gap-3">
-              {machines.map((machine) => {
-                const isMine = machine.user_id === myId;
-                const isRunning = machine.status === 'running';
-                const timeLeft = getTimeLeft(machine.end_time);
-                
-                return (
-                  <div key={machine.id} className="flex flex-col gap-2">
-                      {/* 세탁기 박스: 라벨과 타이머를 아이콘 내부에 통합 */}
-                      <div 
-                        onClick={() => handleMachineClick(machine)} 
-                        className={`aspect-square rounded-[16px] flex flex-col items-center justify-between py-2 border-2 cursor-pointer transition-all duration-200 relative ${
-                          isRunning 
-                          ? isMine 
-                            ? "bg-white border-[#051E96]" 
-                            : "bg-slate-100 border-transparent grayscale" 
-                          : "bg-white border-[#E5E8FF]"
-                        }`}
-                      >
-                          {/* 기기 라벨: 아이콘 내부 상단 파란색 캡슐 형태 */}
-                          <div className={`text-[8px] font-bold px-2 py-0.5 rounded-full text-white ${isRunning ? "bg-[#051E96]" : "bg-[#B9BEFF]"}`}>
-                              {machine.label}
-                          </div>
+             {machines.map((machine) => {
+               const isMine = machine.user_id === myId;
+               const isRunning = machine.status === 'running';
+               const timeLeft = getTimeLeft(machine.end_time);
+               
+               return (
+                 <div key={machine.id} className="flex flex-col gap-2">
+                     {/* 세탁기 박스 */}
+                     <div 
+                       onClick={() => handleMachineClick(machine)} 
+                       className={`aspect-square rounded-[16px] flex flex-col items-center justify-between py-2 border-2 cursor-pointer transition-all duration-200 relative ${
+                         isRunning 
+                         ? isMine 
+                           ? "bg-white border-[#051E96]" 
+                           : "bg-slate-100 border-transparent grayscale" 
+                         : "bg-white border-[#E5E8FF]"
+                       }`}
+                     >
+                         <div className={`text-[8px] font-bold px-2 py-0.5 rounded-full text-white ${isRunning ? "bg-[#051E96]" : "bg-[#B9BEFF]"}`}>
+                             {machine.label}
+                         </div>
 
-                          {/* 중앙 아이콘 및 타이머 */}
-                          <div className="flex flex-col items-center justify-center flex-1 w-full">
-                            {isRunning ? (
-                                <div className="flex flex-col items-center">
-                                    <span className="text-[10px] font-black text-[#051E96]">{isMine ? "사용중" : "사용중"}</span>
-                                    <span className="text-[9px] font-bold text-[#051E96] mt-0.5">{timeLeft}</span>
-                                </div>
-                            ) : (
-                                <Camera className="w-5 h-5 text-[#E5E8FF]" />
-                            )}
-                          </div>
-                      </div>
-                  </div>
-                )
-              })}
+                         <div className="flex flex-col items-center justify-center flex-1 w-full">
+                           {isRunning ? (
+                               <div className="flex flex-col items-center">
+                                   <span className="text-[10px] font-black text-[#051E96]">{isMine ? "사용중" : "사용중"}</span>
+                                   <span className="text-[9px] font-bold text-[#051E96] mt-0.5">{timeLeft}</span>
+                               </div>
+                           ) : (
+                               <Camera className="w-5 h-5 text-[#E5E8FF]" />
+                           )}
+                         </div>
+                     </div>
+                 </div>
+               )
+             })}
            </div>
         </section>
       </div>
 
-      {/* 🌟 하단 메뉴바 (업데이트된 이미지 적용) */}
+      {/* 🌟 하단 메뉴바 */}
       <div className="absolute bottom-0 left-0 w-full h-[60px] bg-white border-t border-slate-50 z-20">
          <div className="relative w-full h-full">
             <Image 
@@ -428,26 +497,67 @@ export default function MainPage() {
               priority
             />
             
-            {/* 투명 버튼 클릭 영역 */}
             <div className="absolute inset-0 flex">
-                <button 
-                  onClick={() => setActiveTab("home")} 
-                  className="flex-1 h-full z-30" 
-                  aria-label="Home"
-                />
-                <button 
-                  onClick={() => { setActiveTab("schedule"); router.push("/schedule"); }} 
-                  className="flex-1 h-full z-30" 
-                  aria-label="Schedule"
-                />
-                <button 
-                  onClick={() => { setActiveTab("mypage"); router.push("/mypage"); }} 
-                  className="flex-1 h-full z-30" 
-                  aria-label="MyPage"
-                />
+                <button onClick={() => setActiveTab("home")} className="flex-1 h-full z-30" aria-label="Home"/>
+                <button onClick={() => { setActiveTab("schedule"); router.push("/schedule"); }} className="flex-1 h-full z-30" aria-label="Schedule"/>
+                <button onClick={() => { setActiveTab("mypage"); router.push("/mypage"); }} className="flex-1 h-full z-30" aria-label="MyPage"/>
             </div>
          </div>
       </div>
+
+      {/* [수정 3] Dialog 위치 변경 (div 내부로 이동하여 문법 에러 해결) */}
+      <Dialog open={!!selectedUser} onOpenChange={(open) => !open && setSelectedUser(null)}>
+        <DialogContent className="w-[90%] max-w-md rounded-[20px] bg-white p-6">
+          <DialogHeader>
+            <DialogTitle className="text-xl font-bold text-[#051E96]">
+              {selectedUser?.nickname}님에게<br/>룸메이트 신청하기
+            </DialogTitle>
+             <DialogDescription className="text-xs text-slate-400">
+               상대방에게 보여질 메시지와 연락처를 남겨주세요.
+             </DialogDescription>
+          </DialogHeader>
+
+          <div className="flex flex-col gap-4 mt-2">
+            {/* 유저 성향 아이콘 요약 */}
+            {selectedUser && (
+               <div className="flex gap-2 justify-center py-2 bg-[#F8F9FF] rounded-xl">
+                 {[getIcons(selectedUser).sleepIcon, getIcons(selectedUser).noiseIcon, getIcons(selectedUser).cleanIcon, getIcons(selectedUser).smokeIcon].map((src, i) => (
+                    <div key={i} className="w-10 h-10 bg-white rounded-lg flex items-center justify-center border border-[#E5E8FF]">
+                      <Image src={src} alt="icon" width={24} height={24} />
+                    </div>
+                 ))}
+               </div>
+            )}
+
+            <div className="space-y-1">
+              <label className="text-sm font-bold text-slate-700">한줄 메시지</label>
+              <input 
+                value={reqMessage}
+                onChange={(e) => setReqMessage(e.target.value)}
+                placeholder="안녕하세요! 저랑 패턴이 잘 맞을 것 같아요 :)"
+                className="w-full p-3 bg-slate-50 rounded-xl border border-slate-200 text-sm focus:outline-none focus:border-[#051E96]"
+              />
+            </div>
+            
+            <div className="space-y-1">
+              <label className="text-sm font-bold text-slate-700">연락처 (카톡ID/전화번호) <span className="text-red-500">*</span></label>
+              <input 
+                value={reqContact}
+                onChange={(e) => setReqContact(e.target.value)}
+                placeholder="오픈채팅 링크나 카톡 아이디를 남겨주세요"
+                className="w-full p-3 bg-slate-50 rounded-xl border border-slate-200 text-sm focus:outline-none focus:border-[#051E96]"
+              />
+            </div>
+
+            <Button 
+              onClick={handleSendRequest}
+              className="w-full bg-[#051E96] hover:bg-[#041675] text-white font-bold h-12 rounded-xl mt-2"
+            >
+              신청 보내기 🚀
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
 
     </div>
   );
