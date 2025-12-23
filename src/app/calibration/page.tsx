@@ -9,13 +9,43 @@ import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
 import { CheckCircle2, Clock, Moon, Sparkles, Cigarette } from "lucide-react";
 
-// --- 더미 데이터 ---
+// --- 통합된 더미 데이터 (화면 표시용 + 가중치 로직용) ---
 const calibrationProfiles = [
-  { id: "c1", name: "User A", sleep: "23:00", wake: "07:00", clean: "매일", smoke: false, intro: "규칙적인 생활을 선호합니다." },
-  { id: "c2", name: "User B", sleep: "02:00", wake: "10:00", clean: "주 1회", smoke: false, intro: "밤에 집중이 잘 되는 편이에요." },
-  { id: "c3", name: "User C", sleep: "00:00", wake: "08:00", clean: "보통", smoke: true, intro: "흡연자지만 실내 냄새 신경 씁니다." },
-  { id: "c4", name: "User D", sleep: "22:00", wake: "06:00", clean: "매일", smoke: false, intro: "아침 운동을 나갑니다." },
-  { id: "c5", name: "User E", sleep: "01:00", wake: "09:00", clean: "적당히", smoke: false, intro: "조용한 분위기를 좋아해요." },
+  { 
+    id: "c1", 
+    name: "User A", 
+    sleep: "23:00", wake: "07:00", clean: "매일", smoke: false, 
+    intro: "규칙적인 생활을 선호합니다.",
+    target_weight: "w_sleep" // 수면 패턴 가중치 강화
+  },
+  { 
+    id: "c2", 
+    name: "User B", 
+    sleep: "02:00", wake: "10:00", clean: "주 1회", smoke: false, 
+    intro: "밤에 집중이 잘 되는 편이에요.",
+    target_weight: "w_sleep" // 수면 패턴 가중치 강화
+  },
+  { 
+    id: "c3", 
+    name: "User C", 
+    sleep: "00:00", wake: "08:00", clean: "보통", smoke: true, 
+    intro: "흡연자지만 실내 냄새 신경 씁니다.",
+    target_weight: "w_smoke" // 흡연 여부 가중치 강화
+  },
+  { 
+    id: "c4", 
+    name: "User D", 
+    sleep: "22:00", wake: "06:00", clean: "매일", smoke: false, 
+    intro: "아침 운동을 나갑니다.",
+    target_weight: "w_clean_cycle" // 청결도 가중치 강화
+  },
+  { 
+    id: "c5", 
+    name: "User E", 
+    sleep: "01:00", wake: "09:00", clean: "적당히", smoke: false, 
+    intro: "조용한 분위기를 좋아해요.",
+    target_weight: "w_noise" // 소음 민감도 가중치 강화 (여기선 alarm_val 등과 매핑)
+  },
 ];
 
 export default function CalibrationPage() {
@@ -29,15 +59,12 @@ export default function CalibrationPage() {
     if (selectedIds.includes(id)) {
       setSelectedIds(selectedIds.filter((sid) => sid !== id));
     } else {
-      if (selectedIds.length >= 1) {
-        setSelectedIds([id]); 
-      } else {
-        setSelectedIds([...selectedIds, id]);
-      }
+      // 1명만 선택 가능하도록 설정
+      setSelectedIds([id]); 
     }
   };
 
-  // --- 분석 시작 ---
+  // --- 분석 및 가중치 업데이트 시작 ---
   const handleAnalyze = async () => {
     if (selectedIds.length === 0) {
       toast.error("가장 마음에 드는 1명을 선택해주세요!");
@@ -46,10 +73,23 @@ export default function CalibrationPage() {
 
     setIsAnalyzing(true);
 
+    // 1. 선택된 더미 유저의 데이터 찾기
+    const selectedProfile = calibrationProfiles.find(p => p.id === selectedIds[0]);
+
     try {
       const { data: { user } } = await supabase.auth.getUser();
       
-      // 로딩 3초
+      // 2. [핵심 로직] 선택한 프로필의 특징(target_weight)을 내 가중치에 반영
+      if (user && selectedProfile) {
+        const weightColumn = selectedProfile.target_weight; 
+        
+        // 해당 가중치를 1.5배(또는 1.5)로 설정하여 중요도 높임
+        await supabase.from("profiles").update({
+           [weightColumn]: 1.5 
+        }).eq("id", user.id);
+      }
+
+      // 3. 로딩 애니메이션 (3초 딜레이)
       await new Promise(resolve => setTimeout(resolve, 3000));
 
       toast.success("취향 분석 완료!");
@@ -57,6 +97,7 @@ export default function CalibrationPage() {
 
     } catch (error) {
       console.error(error);
+      toast.error("분석 중 오류가 발생했습니다.");
       setIsAnalyzing(false);
     }
   };
@@ -96,8 +137,7 @@ export default function CalibrationPage() {
         </p>
       </div>
 
-      {/* 카드 리스트 (스크롤 가능 영역) */}
-      {/* [수정 포인트] 스크롤바 숨기기 코드 추가 */}
+      {/* 카드 리스트 (스크롤바 숨김 적용) */}
       <div className="flex-1 overflow-y-auto space-y-3 pb-4 [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]">
         {calibrationProfiles.map((profile) => {
           const isSelected = selectedIds.includes(profile.id);
