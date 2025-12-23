@@ -400,7 +400,7 @@ export default function MainPage() {
       {/* 3. 메인 스크롤 영역 */}
       <div className="flex-1 overflow-y-auto pb-28 scrollbar-hide space-y-8">
         
-        {/* 추천 룸메이트 */}
+       {/* 추천 룸메이트 */}
         <section className="px-6">
            <h2 className="text-lg font-bold text-[#051E96] mb-4">추천 룸메이트</h2>
            <div className="flex gap-3 overflow-x-auto pb-6 -mx-6 px-6 scrollbar-hide snap-x">
@@ -409,10 +409,11 @@ export default function MainPage() {
                  return (
                    <div 
                      key={idx} 
-                     onClick={() => setSelectedUser(user)} // [수정 2] 클릭 이벤트 추가!
-                     className="snap-center shrink-0 w-[160px] bg-white rounded-[20px] p-4 flex flex-col gap-2.5 shadow-[0_4px_15px_rgba(0,0,0,0.03)] border border-[#F0F2F9] cursor-pointer"
+                     // 👇 [수정됨] 팝업 대신 상세 프로필 페이지로 이동
+                     onClick={() => router.push(`/profile/${user.id}`)} 
+                     className="snap-center shrink-0 w-[160px] bg-white rounded-[20px] p-4 flex flex-col gap-2.5 shadow-[0_4px_15px_rgba(0,0,0,0.03)] border border-[#F0F2F9] cursor-pointer hover:border-[#051E96] transition-colors"
                     >
-                       {/* 상단: 아이콘 + 이름/흡연 정보 (가로 배치) */}
+                       {/* ... 내부는 기존과 동일 ... */}
                        <div className="flex items-center gap-2.5">
                            <div className="relative w-11 h-11 rounded-full bg-[#F5F6FF] flex items-center justify-center border-2 border-white shadow-sm shrink-0">
                                <Image src="/images/ghost_icon.png" alt="Profile" width={28} height={28} />
@@ -424,7 +425,7 @@ export default function MainPage() {
                                </span>
                            </div>
                        </div>
-                       {/* 하단: 아이콘 그리드 */}
+                       
                        <div className="grid grid-cols-2 gap-1.5 w-full">
                            <div className="aspect-square bg-[#F8F9FF] rounded-lg flex items-center justify-center border border-[#E5E8FF]"><Image src={sleepIcon} alt="Sleep" width={18} height={18} /></div>
                            <div className="aspect-square bg-[#F8F9FF] rounded-lg flex items-center justify-center border border-[#E5E8FF]"><Image src={noiseIcon} alt="Noise" width={18} height={18} /></div>
